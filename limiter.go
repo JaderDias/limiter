@@ -8,26 +8,19 @@ func BoundedConcurrencyWithDoneProcessor[C any](
 ) {
 	inputChan := make(chan int, limit)
 	defer close(inputChan)
-	outputChan := make(chan C)
+	outputChan := make(chan C, jobs)
 	defer close(outputChan)
-	for workerNumber := 0; workerNumber < limit; workerNumber++ {
-		go func() {
-			for i := range inputChan {
-				result := job(i)
-				outputChan <- result
-			}
-		}()
-	}
-
-	go func() {
-		for i := 0; i < jobs; i++ {
-			inputChan <- i
-		}
-	}()
 
 	for i := 0; i < jobs; i++ {
-		data := <-outputChan
-		done(data)
+		inputChan <- i
+		go func(j int) {
+			defer func() { <-inputChan }()
+			outputChan <- job(j)
+		}(i)
+	}
+
+	for i := 0; i < jobs; i++ {
+		done(<-outputChan)
 	}
 }
 
