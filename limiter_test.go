@@ -30,43 +30,70 @@ func TestExample(t *testing.T) {
 func TestWithDoneProcessor(t *testing.T) {
 	RegisterTestingT(t)
 
-	t.Run("TestExample", func(*testing.T) {
-		LIMIT := 10
-		N := 1000
-		x := int32(N)
-		results := make([]int32, N)
-		limiter.BoundedConcurrencyWithDoneProcessor(
-			LIMIT,
-			N,
-			func(i int) int32 {
-				// do some work:
-				return atomic.AddInt32(&x, -1)
-			},
-			func(result int32) {
-				results[int(result)] = 1 + result
-			},
-		)
-		Expect(x).To(BeEquivalentTo(0))
-		for i, v := range results {
-			Expect(i >= 0).To(BeEquivalentTo(true))
-			Expect(i < N).To(BeEquivalentTo(true))
-			Expect(v > 0).To(BeEquivalentTo(true))
-			Expect(int(v) <= N).To(BeEquivalentTo(true))
-		}
-	})
+	tests := []struct {
+		name             string
+		concurrencyLimit int
+		numberOfTasks    int
+	}{
+		{
+			name:             "MoreTasksThanConcurrencyLimit",
+			concurrencyLimit: 10,
+			numberOfTasks:    100,
+		},
+		{
+			name:             "SameTasksAndConcurrencyLimit",
+			concurrencyLimit: 100,
+			numberOfTasks:    100,
+		},
+		{
+			name:             "MoreLimitThanTasks",
+			concurrencyLimit: 100,
+			numberOfTasks:    10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(*testing.T) {
+			nrDoneTasks := int32(0)
+			nrDoneTasksWhenFirstDoneInvoked := int32(0)
+			results := make([]int32, tt.numberOfTasks)
+			limiter.BoundedConcurrencyWithDoneProcessor(
+				tt.concurrencyLimit,
+				tt.numberOfTasks,
+				func(i int) int32 {
+					// do some work:
+					return atomic.AddInt32(&nrDoneTasks, 1)
+				},
+				func(result int32) {
+					atomic.CompareAndSwapInt32(&nrDoneTasksWhenFirstDoneInvoked, int32(0), nrDoneTasks)
+					results[int(result-1)] = result
+				},
+			)
+			Expect(nrDoneTasks).To(BeEquivalentTo(tt.numberOfTasks))
+			Expect(nrDoneTasksWhenFirstDoneInvoked).To(BeNumerically(">", 0))
+			Expect(int(nrDoneTasksWhenFirstDoneInvoked)).To(BeNumerically("<=", tt.numberOfTasks))
+			Expect(int(nrDoneTasksWhenFirstDoneInvoked)).To(BeNumerically("<=", tt.concurrencyLimit))
+			for i, v := range results {
+				Expect(i).To(BeNumerically(">=", 0))
+				Expect(i).To(BeNumerically("<", tt.numberOfTasks))
+				Expect(v).To(BeNumerically(">", 0))
+				Expect(v).To(BeNumerically("<=", int32(tt.numberOfTasks)))
+			}
+		})
+	}
 }
 
 func TestLimit(t *testing.T) {
 	RegisterTestingT(t)
 
 	t.Run("TestLimit", func(*testing.T) {
-		LIMIT := 10
-		N := 1000
+		concurrencyLimit := 10
+		numberOfTasks := 1000
 		m := map[int]bool{}
 		lock := &sync.Mutex{}
 		max := int32(0)
 		concurrent := int32(0)
-		limiter.BoundedConcurrency(LIMIT, N, func(i int) {
+		limiter.BoundedConcurrency(concurrencyLimit, numberOfTasks, func(i int) {
 			atomic.AddInt32(&concurrent, 1)
 			lock.Lock()
 			m[i] = true
@@ -77,8 +104,8 @@ func TestLimit(t *testing.T) {
 			atomic.AddInt32(&concurrent, -1)
 		})
 
-		Expect(len(m)).To(BeEquivalentTo(N))
-		Expect(max).To(BeEquivalentTo(int32(LIMIT)))
+		Expect(len(m)).To(BeEquivalentTo(numberOfTasks))
+		Expect(max).To(BeEquivalentTo(int32(concurrencyLimit)))
 	})
 }
 
