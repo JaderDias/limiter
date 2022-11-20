@@ -2,7 +2,9 @@ package limiter_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -155,6 +157,30 @@ func benchmark(b *testing.B, numberOfTasks, numberOfWorkers int) {
 		x := int32(numberOfTasks)
 		limiter.BoundedConcurrency(numberOfWorkers, numberOfTasks, func(i int) {
 			// do some work:
+			atomic.AddInt32(&x, -1)
+		})
+	}
+}
+
+func bToKb(b uint64) uint64 {
+	return b / 1024
+}
+
+func TestMemory(t *testing.T) {
+	numberOfTasks := 100000
+	numberOfWorkers := 1000
+	for i := 0; i < 10; i++ {
+		x := int32(numberOfTasks)
+		limiter.BoundedConcurrency(numberOfWorkers, numberOfTasks, func(i int) {
+			if i == numberOfTasks-1 {
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				fmt.Printf("Alloc = %v KiB", bToKb(m.Alloc))
+				fmt.Printf("\tTotalAlloc = %v KiB", bToKb(m.TotalAlloc))
+				fmt.Printf("\tSys = %v KiB", bToKb(m.Sys))
+				fmt.Printf("\tNumGC = %v\n", m.NumGC)
+			}
+
 			atomic.AddInt32(&x, -1)
 		})
 	}
